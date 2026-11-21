@@ -1,0 +1,14 @@
+{
+  "name": "figma-checker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check:figma": "node dist/cli.js"
+  },
+  "dependencies": { "fp-ts": "2.16.11" },
+  "devDependencies": { "@types/node": "24.10.1", "typescript": "5.9.3" }
+}
