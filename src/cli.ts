@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import * as E from 'fp-ts/lib/Either.js';
 import * as TE from 'fp-ts/lib/TaskEither.js';
 import { pipe } from 'fp-ts/lib/function.js';
-import { decodeSnapshot, fetchSnapshot, parseFigmaTarget } from './figma.js';
+import { decodeSnapshot, fetchSnapshot, figmaNodeLink, parseFigmaTarget } from './figma.js';
 import type { FigmaTarget } from './figma.js';
 import { evaluateSnapshot, namingRuleId } from './lint.js';
 import { asRecord } from './types.js';
@@ -124,6 +124,7 @@ async function main() {
     createdAt: new Date().toISOString(),
     source: E.isRight(config) ? config.right.source : null,
     configHash: E.isRight(config) ? configFingerprint(config.right) : null,
+    targetUrl: E.isRight(config) ? figmaNodeLink(config.right.target, config.right.target.nodeId) : null,
     mode: args.fixture !== undefined ? 'fixture' : 'live',
     diagnostics,
   };

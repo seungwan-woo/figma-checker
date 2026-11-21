@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { addAttempt, readHistory, renderHistory, selectReport } from '../dist/history.js';
+import { preparePublicReport } from '../dist/pages.js';
+
+const targetUrl = 'https://www.figma.com/design/test123/Demo?node-id=13-32';
+const successful = (date, enabled = 3) => ({
+  schemaVersion: 1, status: 'complete', mode: 'live', createdAt: `2026-11-${date}T02:13:01.000Z`,
+  targetUrl: `${targetUrl}&t=ignored`,
+  snapshot: { figmaVersion: `rev-${date}` },
+  metrics: [{ id: 'auto-layout-adoption', enabled, eligible: 4, percentage: enabled * 25 }],
+  findings: [{ ruleId: 'default-frame-name', nodeName: 'Frame 12', nodeId: '13:32', url: targetUrl }],
+  secretMetadata: 'must-not-be-public',
+});
+const sample = preparePublicReport({ ...successful('21'), mode: 'fixture' });
+
+test('two live runs survive serialization and the Pages table shows both points', () => {
+  const first = addAttempt([], '100', successful('19', 2));
+  const latest = addAttempt(first, '101', successful('20'));
+  const restored = readHistory(JSON.parse(JSON.stringify(latest)));
+  assert.equal(restored.length, 2);
+  assert.equal(selectReport(restored, sample).metrics[0].percentage, 75);
+  const html = renderHistory(restored);
+  assert.match(html, /50%/);
+  assert.match(html, /75%/);
+  assert.match(html, /rev-20/);
+  assert.match(html, /https:\/\/www\.figma\.com\/design\/test123/);
+  assert.doesNotMatch(JSON.stringify(restored), /must-not-be-public|t=ignored/);
+});
+
+test('a failed rerun preserves an earlier successful attempt and writing the same attempt is idempotent', () => {
+  const initial = addAttempt([], '100-1', successful('19', 2));
+  const failed = addAttempt(initial, '100-2', {
+    ...successful('20'), status: 'error', error: { code: 'FIGMA_RATE_LIMIT', httpStatus: 429 },
+  });
+  assert.equal(selectReport(failed, sample).metrics[0].percentage, 50);
+  assert.match(renderHistory(failed), /FIGMA_RATE_LIMIT/);
+  assert.doesNotMatch(renderHistory(failed), /75%/);
+  const retried = addAttempt(failed, '100-2', successful('21'));
+  assert.equal(retried.length, 2);
+  assert.doesNotMatch(renderHistory(retried), /FIGMA_RATE_LIMIT/);
+});
+
+test('fixture runs and Figma targets have distinct history groups', () => {
+  const first = addAttempt([], '100', successful('19'));
+  const second = addAttempt(first, '101', { ...successful('20'), targetUrl: targetUrl.replace('13-32', '13-44') });
+  const third = addAttempt(second, '102', { ...successful('21'), mode: 'fixture' });
+  assert.equal(selectReport(third, sample).mode, 'live');
+  assert.equal(new Set(third.map(({ report }) => report.scope)).size, 3);
+});
+
+test('public report strips non-Figma advisory links', () => {
+  const [entry] = addAttempt([], '100', {
+    ...successful('19'), findings: [{ ...successful('19').findings[0], url: 'https://example.org/private' }],
+  });
+  assert.doesNotMatch(JSON.stringify(entry), /example.org/);
+});
+
+test('history separates changed measurement definitions and shows when the naming rule is off', () => {
+  const first = addAttempt([], '100', { ...successful('19'), configHash: 'a'.repeat(64) });
+  const changed = successful('20');
+  changed.metrics[0].version = 2;
+  changed.findings = [];
+  const history = addAttempt(first, '101', {
+    ...changed,
+    configHash: 'b'.repeat(64),
+    rules: [{ id: 'default-frame-name', version: 1, enabled: false, evaluated: 0 }],
+  });
+  const html = renderHistory(readHistory(JSON.parse(JSON.stringify(history))));
+  assert.match(html, /규칙 꺼짐/);
+  assert.match(html, /측정 기준 v1/);
+  assert.match(html, /측정 기준 v2/);
+});
