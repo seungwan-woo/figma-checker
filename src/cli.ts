@@ -7,15 +7,16 @@ import * as TE from 'fp-ts/lib/TaskEither.js';
 import { pipe } from 'fp-ts/lib/function.js';
 import { decodeSnapshot, fetchSnapshot, figmaNodeLink, parseFigmaTarget } from './figma.js';
 import type { FigmaTarget } from './figma.js';
+import { instanceSourceRuleId } from './instance-source.js';
 import { defaultNamingPattern, evaluateSnapshot, namingRuleId } from './lint.js';
 import { asRecord } from './types.js';
 import type { CheckError } from './types.js';
 
 const invalidConfig = {
-  code: 'INVALID_CONFIG', message: 'Check the source alias, URL, and default layer naming rule in the config.',
+  code: 'INVALID_CONFIG', message: 'Check the source alias, URL, and rules in the config.',
 };
 
-type Config = { source: string; target: FigmaTarget; namingPattern: RegExp | null };
+type Config = { source: string; target: FigmaTarget; namingPattern: RegExp | null; instanceSourceEnabled: boolean };
 
 function loadJson(path: string, error: CheckError): TE.TaskEither<CheckError, unknown> {
   return TE.tryCatch(async (): Promise<unknown> => JSON.parse(await readFile(path, 'utf8')), () => error);
@@ -28,7 +29,7 @@ function readConfig(raw: unknown): E.Either<CheckError, Config> {
     return E.left(invalidConfig);
   }
   const rules = asRecord(config.rules);
-  if (config.rules !== undefined && (!rules || Object.keys(rules).some((id) => id !== namingRuleId))) {
+  if (config.rules !== undefined && (!rules || Object.keys(rules).some((id) => id !== namingRuleId && id !== instanceSourceRuleId))) {
     return E.left(invalidConfig);
   }
   const value = rules?.[namingRuleId];
@@ -38,6 +39,11 @@ function readConfig(raw: unknown): E.Either<CheckError, Config> {
   if (typeof enabled !== 'boolean' || typeof pattern !== 'string' || !pattern || pattern.length > 256) {
     return E.left(invalidConfig);
   }
+  const configuredSourceRule = rules?.[instanceSourceRuleId];
+  const sourceRule = asRecord(configuredSourceRule);
+  if (configuredSourceRule !== undefined && !sourceRule) return E.left(invalidConfig);
+  const { enabled: instanceSourceEnabled = true } = sourceRule ?? {};
+  if (typeof instanceSourceEnabled !== 'boolean') return E.left(invalidConfig);
 
   const source = config.source;
   const url = process.env.FIGMA_URL?.trim() || config.url?.trim();
@@ -45,7 +51,7 @@ function readConfig(raw: unknown): E.Either<CheckError, Config> {
   return pipe(
     parseFigmaTarget(url),
     E.flatMap((target) => E.tryCatch(
-      () => ({ source, target, namingPattern: enabled ? new RegExp(pattern) : null }),
+      () => ({ source, target, namingPattern: enabled ? new RegExp(pattern) : null, instanceSourceEnabled }),
       () => invalidConfig,
     )),
   );
@@ -58,7 +64,7 @@ function configFingerprint({ source, target, namingPattern }: Config): string {
 }
 
 function scan(config: Config, fixture: string | undefined, transport: typeof fetch) {
-  const { target, namingPattern } = config;
+  const { target, namingPattern, instanceSourceEnabled } = config;
   const token = process.env.FIGMA_TOKEN?.trim();
   const snapshot = fixture !== undefined
     ? pipe(
@@ -68,7 +74,9 @@ function scan(config: Config, fixture: string | undefined, transport: typeof fet
     : token
       ? fetchSnapshot(target, token, transport)
       : TE.left<CheckError, never>({ code: 'MISSING_FIGMA_TOKEN', message: 'Set FIGMA_TOKEN for a live scan.' });
-  return pipe(snapshot, TE.map((value) => evaluateSnapshot(value, target, namingPattern)));
+  return pipe(snapshot, TE.map((value) => evaluateSnapshot(value, target, namingPattern, {
+    enabled: instanceSourceEnabled, includeLinks: fixture === undefined,
+  })));
 }
 
 async function writeReport(output: string, report: object) {

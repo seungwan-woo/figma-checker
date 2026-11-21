@@ -36,7 +36,7 @@ test('the manual fixture links default names on both frames and other layer type
   assert.deepEqual(report.metrics[0], {
     id: 'auto-layout-adoption', version: 1, enabled: 3, eligible: 4, percentage: 75,
   });
-  assert.deepEqual(report.findings.map(({ nodeId, nodeName, ruleVersion, severity, url }) => ({
+  assert.deepEqual(report.findings.filter(({ ruleId }) => ruleId === 'default-frame-name').map(({ nodeId, nodeName, ruleVersion, severity, url }) => ({
     nodeId, nodeName, ruleVersion, severity, url,
   })), [{
     nodeId: '13:32', nodeName: 'Frame 12', ruleVersion: 2, severity: 'advisory', url: demoUrl,
@@ -45,6 +45,11 @@ test('the manual fixture links default names on both frames and other layer type
   }, {
     nodeId: '13:36', nodeName: 'Rectangle 1', ruleVersion: 2, severity: 'advisory', url: demoUrl.replace('13-32', '13-36'),
   }]);
+  const references = report.rules.find(({ id }) => id === 'instance-source-reference');
+  assert.deepEqual([references.resolved, references.unresolved], [1, 1]);
+  const finding = report.findings.find(({ ruleId }) => ruleId === 'instance-source-reference');
+  assert.equal(finding.reason, 'missing_component_entry');
+  assert.equal(finding.url, undefined);
 });
 
 test('a custom naming pattern replaces the built-in defaults', async (t) => {
@@ -53,7 +58,7 @@ test('a custom naming pattern replaces the built-in defaults', async (t) => {
   });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(await readFile(result.output, 'utf8'));
-  assert.deepEqual(report.findings.map(({ nodeName }) => nodeName), ['Setting row']);
+  assert.deepEqual(report.findings.filter(({ ruleId }) => ruleId === 'default-frame-name').map(({ nodeName }) => nodeName), ['Setting row']);
 });
 
 test('a missing node produces a failed run rather than an empty successful report', async (t) => {
@@ -72,7 +77,18 @@ test('the config can disable the naming rule without changing adoption', async (
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(await readFile(result.output, 'utf8'));
   assert.equal(report.metrics[0].percentage, 75);
-  assert.deepEqual(report.findings, []);
+  assert.ok(report.findings.every(({ ruleId }) => ruleId !== 'default-frame-name'));
+});
+
+test('the config disables the source check without changing naming', async (t) => {
+  const result = await run(t, 'test/fixtures/pilot-nodes.json', demoUrl, {
+    source: 'synthetic', rules: { 'instance-source-reference': { enabled: false } },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(await readFile(result.output, 'utf8'));
+  assert.equal(report.rules.find(({ id }) => id === 'instance-source-reference').enabled, false);
+  assert.equal(report.findings.length, 3);
+  assert.ok(report.findings.every(({ ruleId }) => ruleId === 'default-frame-name'));
 });
 
 test('share parameters do not change the normalized config fingerprint', async (t) => {

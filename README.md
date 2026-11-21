@@ -13,7 +13,7 @@ FIGMA_URL='https://www.figma.com/design/synthetic/Example?node-id=13-32' \
   npm run check:figma -- --fixture test/fixtures/pilot-nodes.json
 ```
 
-Open `reports/report.json`. The example yields **75% adoption (3 of 4 containers)** and three naming advisories. The URLs in the synthetic findings show the link format.
+Open `reports/report.json`. The example yields **75% adoption (3 of 4 containers)**, three naming advisories, and one resolved and one unresolved instance reference.
 
 ## Publish a live Figma report
 
@@ -28,8 +28,10 @@ To run locally with these environment variables already set, run `npm run build`
 ## Read the result
 
 - `metrics` shows Auto Layout adoption for visible, nonempty frame and component containers. Instance subtrees are excluded. A `null` percentage means there were no eligible containers. A failed scan has `status: "error"`.
-- `findings` links the selected node and any descendants that exactly match a default layer name such as `Frame 12`, `Rectangle 1`, or `Group 3`. The rule matches the name regardless of node type, visibility, or instance ancestry. A descriptive name such as `Frame 12 copy` does not match the default pattern.
+- `findings` reports the selected node and any descendants that exactly match a default layer name such as `Frame 12`, `Rectangle 1`, or `Group 3`. The rule matches the name regardless of node type, visibility, or instance ancestry. Ordinary node IDs can link to Figma. Virtual nested IDs appear as text. A descriptive name such as `Frame 12 copy` does not match the default pattern.
+- `instance-source-reference` checks actual `INSTANCE` layers against the same Figma response. It reports resolved, unresolved, and not checked counts. An unresolved advisory means the response could not identify the source. Ordinary live details link to their Figma nodes. Fixture details and virtual nested IDs show the ID as text. The report retains all counts and up to 100 details.
 - In `figma-checker.config.json`, `rules.default-frame-name` keeps its existing key for compatibility. Set `pattern` to override the built-in English defaults or `enabled` to disable the rule. A private config can supply `url`; `FIGMA_URL` overrides it.
+- Set `rules.instance-source-reference.enabled` to `false` to disable the source check.
 
 ## GitHub Pages preview
 

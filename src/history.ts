@@ -1,4 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { instanceSourceRuleId } from './instance-source.js';
+import { namingRuleId } from './lint.js';
 import { escapeHtml, formatDate, namingStatus, preparePublicReport, publicFigmaTarget, writeSite } from './pages.js';
 import { asRecord } from './types.js';
 
@@ -15,6 +17,17 @@ type FailedRun = {
 type HistoryEntry = { id: string; report: PublicReport | FailedRun };
 const maxEntries = 100;
 const maxHistoryBytes = 32 * 1024 * 1024;
+const historyStart = '[\n';
+const historyEnd = '\n]\n';
+const historySeparator = ',\n';
+
+function serializeHistory(entries: readonly HistoryEntry[]): string {
+  return historyStart + entries.map((entry) => JSON.stringify(entry)).join(historySeparator) + historyEnd;
+}
+
+function entryBytes(entry: HistoryEntry): number {
+  return Buffer.byteLength(JSON.stringify(entry));
+}
 
 function prepareAttempt(id: unknown, value: unknown): HistoryEntry {
   const report = asRecord(value);
@@ -61,13 +74,60 @@ export function readHistory(value: unknown): HistoryEntry[] {
   return entries.sort(newestFirst);
 }
 
+function trimInstanceDetails(entry: HistoryEntry, budget: number): HistoryEntry | undefined {
+  const { report } = entry;
+  if (report.status !== 'complete') return undefined;
+  const summary = report.rules.find(({ id }) => id === instanceSourceRuleId);
+  const detailCount = report.findings.filter(({ ruleId }) => ruleId === instanceSourceRuleId).length;
+  if (!summary || detailCount === 0) return undefined;
+
+  const keepPrefix = (keep: number): HistoryEntry => {
+    let seen = 0;
+    return {
+      id: entry.id,
+      report: {
+        ...report,
+        findings: report.findings.filter(({ ruleId }) => ruleId !== instanceSourceRuleId || ++seen <= keep),
+        rules: report.rules.map((rule) => rule.id === instanceSourceRuleId
+          ? { ...rule, omittedDetails: rule.unresolved - keep } : rule),
+      },
+    };
+  };
+
+  let best = keepPrefix(0);
+  if (entryBytes(best) > budget) return undefined;
+  // An added finding costs more than any bytes saved in the omitted count.
+  let low = 1;
+  let high = detailCount - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = keepPrefix(middle);
+    if (entryBytes(candidate) <= budget) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best;
+}
+
 export function addAttempt(history: readonly HistoryEntry[], id: string, value: unknown): HistoryEntry[] {
   const entries = [...history.filter((entry) => entry.id !== id), prepareAttempt(id, value)].sort(newestFirst);
   const retained: HistoryEntry[] = [];
-  let bytes = 5;
-  for (const entry of entries.slice(0, maxEntries)) {
-    bytes += Buffer.byteLength(JSON.stringify(entry)) + 2;
-    if (bytes > maxHistoryBytes) break;
+  let bytes = Buffer.byteLength(historyStart + historyEnd);
+  for (let entry of entries.slice(0, maxEntries)) {
+    const separatorBytes = retained.length === 0 ? 0 : Buffer.byteLength(historySeparator);
+    const budget = maxHistoryBytes - bytes - separatorBytes;
+    let size = entryBytes(entry);
+    if (size > budget && entry.id === id) {
+      const trimmed = trimInstanceDetails(entry, budget);
+      if (!trimmed) break;
+      entry = trimmed;
+      size = entryBytes(entry);
+    }
+    if (size > budget) break;
+    bytes += size + separatorBytes;
     retained.push(entry);
   }
   if (!retained.some((entry) => entry.id === id)) throw new Error('The report exceeds the retained history window.');
@@ -104,13 +164,14 @@ function groupEntries(history: readonly HistoryEntry[], key: (entry: HistoryEntr
 
 function historySeries(entries: HistoryEntry[]): string {
   const groups = groupEntries(entries, ({ report }) => report.status === 'error' ? 'errors'
-    : `${report.metrics[0].version}:${report.configHash}:${report.rules[0]?.version ?? ''}`);
+    : `${report.metrics[0].version}:${report.configHash}:${report.rules.find(({ id }) => id === namingRuleId)?.version ?? ''}`);
   return groups.map((group) => {
     const first = group[0]?.report;
     if (!first) return '';
+    const namingRule = first.status === 'complete' ? first.rules.find(({ id }) => id === namingRuleId) : undefined;
     const label = first.status === 'error' ? '실패한 실행' : [
       `측정 기준 v${first.metrics[0].version}`,
-      first.rules[0] ? `이름 규칙 v${first.rules[0].version}` : null,
+      namingRule ? `이름 규칙 v${namingRule.version}` : null,
       first.configHash?.slice(0, 8),
     ].filter(Boolean).join(' · ');
     return `<div class="history-table"><table><caption>${label}</caption>
@@ -146,11 +207,10 @@ if (import.meta.main) {
   });
   const history = readHistory(JSON.parse(stored));
   const report: unknown = JSON.parse(await readFile(reportPath, 'utf8'));
-  const json = (entries: readonly HistoryEntry[]) => `[\n${entries.map((entry) => JSON.stringify(entry)).join(',\n')}\n]\n`;
   if (command === 'append') {
     if (!id) throw new Error('An Actions attempt ID is required to append history.');
-    await writeFile(path, json(addAttempt(history, id, report)));
+    await writeFile(path, serializeHistory(addAttempt(history, id, report)));
   } else {
-    await writeSite(selectReport(history, preparePublicReport(report)), { markup: renderHistory(history), json: json(history) });
+    await writeSite(selectReport(history, preparePublicReport(report)), { markup: renderHistory(history), json: serializeHistory(history) });
   }
 }
