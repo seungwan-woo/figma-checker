@@ -108,8 +108,11 @@ function historySeries(entries: HistoryEntry[]): string {
   return groups.map((group) => {
     const first = group[0]?.report;
     if (!first) return '';
-    const label = first.status === 'error' ? '실패한 실행'
-      : `측정 기준 v${first.metrics[0].version}${first.configHash ? ` · ${first.configHash.slice(0, 8)}` : ''}`;
+    const label = first.status === 'error' ? '실패한 실행' : [
+      `측정 기준 v${first.metrics[0].version}`,
+      first.rules[0] ? `이름 규칙 v${first.rules[0].version}` : null,
+      first.configHash?.slice(0, 8),
+    ].filter(Boolean).join(' · ');
     return `<div class="history-table"><table><caption>${label}</caption>
       <thead><tr><th scope="col">실행 시각 (KST)</th><th scope="col">Auto Layout</th>
       <th scope="col">이름 린트</th><th scope="col">Figma 버전</th></tr></thead>

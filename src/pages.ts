@@ -121,7 +121,7 @@ export function renderReport(report: ReturnType<typeof preparePublicReport>, his
     <header>
       <p class="eyebrow">${label}</p>
       <h1>Figma Checker</h1>
-      <p>Auto Layout 사용과 기본 이름이 남은 프레임을 확인합니다.</p>
+      <p>Auto Layout 사용과 기본 이름이 남은 레이어를 확인합니다.</p>
       <div class="report-meta">
         <span>생성 <time datetime="${date.toISOString()}">${escapeHtml(updatedAt)}</time> (KST)</span>
         <a href="./report.json" download>보고서 JSON 다운로드</a>
@@ -136,7 +136,7 @@ export function renderReport(report: ReturnType<typeof preparePublicReport>, his
         <p>적용 ${number.format(metric.enabled)} / ${number.format(metric.eligible)}개 컨테이너</p>
       </section>
       <section aria-labelledby="naming">
-        <h2 id="naming">프레임 이름 검토</h2>
+        <h2 id="naming">레이어 이름 검토</h2>
         <p class="metric">${namingStatus(report)}</p>
         ${findings}
       </section>

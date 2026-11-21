@@ -43,16 +43,21 @@ test('a missing layout mode gives 0% when an eligible container exists and null 
   assert.equal(eligible.metrics[0].percentage, 0);
 });
 
-test('page naming follows sections and stops at frames', () => {
+test('naming checks nested and hidden layers without filtering by node type', () => {
   const { right: target } = parseFigmaTarget(url);
   const page = node('4:2', 'CANVAS', { children: [
     node('4:3', 'SECTION', { children: [node('4:4', 'FRAME', { name: 'Frame 4' })] }),
-    node('4:5', 'FRAME', { children: [node('4:6', 'FRAME', { name: 'Frame 6' })] }),
+    node('4:5', 'FRAME', { children: [
+      node('4:6', 'RECTANGLE', { name: 'Frame 6', visible: false }),
+      node('4:7', 'TEXT', { name: 'Frame 7 copy' }),
+    ] }),
   ] });
   const { right: snapshot } = decodeSnapshot(fixture(page), target.nodeId);
   const result = evaluateSnapshot(snapshot, target, /^Frame(?: [0-9]+)?$/);
   assert.deepEqual(result.findings.map(({ nodeId, pageId, url }) => ({ nodeId, pageId, url })), [{
     nodeId: '4:4', pageId: '4:2', url: 'https://www.figma.com/design/sample123/Demo?node-id=4-4',
+  }, {
+    nodeId: '4:6', pageId: '4:2', url: 'https://www.figma.com/design/sample123/Demo?node-id=4-6',
   }]);
 });
 
@@ -73,7 +78,7 @@ test('a Figma branch link selects the branch key and keeps its branch deep link'
   assert.equal(report.findings[0].url, branchUrl);
 });
 
-test('a directly selected instance descendant does not enter the metric or the naming rule', () => {
+test('naming checks a directly selected instance descendant while the adoption metric excludes it', () => {
   const id = 'I4:7;4:2';
   const { right: target } = parseFigmaTarget('https://www.figma.com/design/sample123/Demo?node-id=I4-7%3B4-2');
   const root = node(id, 'FRAME', {
@@ -82,5 +87,5 @@ test('a directly selected instance descendant does not enter the metric or the n
   const { right: snapshot } = decodeSnapshot({ version: 'test-1', nodes: { [id]: { document: root } } }, id);
   const report = evaluateSnapshot(snapshot, target, /^Frame \d+$/);
   assert.equal(report.metrics[0].eligible, 0);
-  assert.deepEqual(report.findings, []);
+  assert.deepEqual(report.findings.map(({ nodeId }) => nodeId), [id]);
 });
