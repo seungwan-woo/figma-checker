@@ -29,4 +29,8 @@ To run locally with these environment variables already set, run `npm run build`
 - `findings` links visible top-level frames with a name such as `Frame 12` back to Figma. With a frame link, the naming rule checks the selected frame. The metric also examines its eligible descendants.
 - `figma-checker.config.json` configures the report alias and the naming rule pattern or `enabled` flag. A private config can supply `url`; `FIGMA_URL` overrides it.
 
-The [concept brief](concepts_brief.md) covers the later file-wide scan, scheduled history, GitHub Pages, and optional scoring. Measure Free seat quota in the private pilot before choosing a schedule.
+## GitHub Pages preview
+
+Run `npm run build:pages` and serve `pages-dist/` to preview the sample report and its JSON download. The Pages workflow builds a new fixture preview on relevant pushes to `main` or by manual dispatch. In **Settings → Pages**, choose **GitHub Actions** as the source. The workflow deployment provides the site URL.
+
+The preview builds only from the checked-in fixture. The [concept brief](concepts_brief.md) covers the later file-wide scan, scheduled history, and optional scoring. Measure Free seat quota in the private pilot before choosing a schedule.

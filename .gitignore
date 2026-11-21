@@ -1,5 +1,6 @@
 /dist/
 /node_modules/
 /reports/
+/pages-dist/
 /.env*
 /figma-checker.private.json
