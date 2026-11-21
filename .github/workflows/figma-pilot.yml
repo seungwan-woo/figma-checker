@@ -1,0 +1,59 @@
+name: Figma pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run against the synthetic fixture or the private Figma draft
+        type: choice
+        options:
+          - fixture
+          - live
+        default: fixture
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require a private repository for live reports
+        if: ${{ inputs.mode == 'live' && !github.event.repository.private }}
+        run: |
+          echo 'Live reports include private Figma metadata. Run the live mode in a private repository.'
+          exit 1
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+
+      - name: Generate synthetic Figma report
+        if: ${{ inputs.mode == 'fixture' }}
+        env:
+          FIGMA_URL: https://www.figma.com/design/synthetic/Example?node-id=13-32
+        run: npm run check:figma -- --fixture test/fixtures/pilot-nodes.json
+
+      - name: Generate live Figma report
+        if: ${{ inputs.mode == 'live' && github.event.repository.private }}
+        env:
+          FIGMA_URL: ${{ secrets.FIGMA_URL }}
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+        run: npm run check:figma
+
+      - name: Upload Figma report
+        if: ${{ !cancelled() && hashFiles('reports/report.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: figma-report-${{ inputs.mode }}
+          path: reports/report.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,76 @@
+{
+  "name": "Synthetic UI kit",
+  "editorType": "figma",
+  "version": "synthetic-1",
+  "nodes": {
+    "13:32": {
+      "document": {
+        "id": "13:32",
+        "type": "FRAME",
+        "name": "Frame 12",
+        "layoutMode": "GRID",
+        "children": [
+          {
+            "id": "13:33",
+            "type": "COMPONENT",
+            "name": "Setting row",
+            "layoutMode": "HORIZONTAL",
+            "children": [{ "id": "13:34", "type": "TEXT", "name": "Label" }]
+          },
+          {
+            "id": "13:35",
+            "type": "FRAME",
+            "name": "Frame 2",
+            "layoutMode": "VERTICAL",
+            "children": [{ "id": "13:36", "type": "RECTANGLE", "name": "Content" }]
+          },
+          {
+            "id": "13:37",
+            "type": "FRAME",
+            "name": "Header art",
+            "children": [{ "id": "13:38", "type": "VECTOR", "name": "Art" }]
+          },
+          {
+            "id": "13:39",
+            "type": "FRAME",
+            "name": "Empty layout",
+            "layoutMode": "VERTICAL",
+            "children": []
+          },
+          {
+            "id": "13:40",
+            "type": "FRAME",
+            "name": "Hidden group",
+            "visible": false,
+            "children": [
+              {
+                "id": "13:41",
+                "type": "FRAME",
+                "name": "Hidden descendant",
+                "layoutMode": "VERTICAL",
+                "children": [{ "id": "13:42", "type": "TEXT", "name": "Label" }]
+              }
+            ]
+          },
+          {
+            "id": "13:43",
+            "type": "INSTANCE",
+            "name": "A placed instance",
+            "children": [
+              {
+                "id": "I13:43;13:44",
+                "type": "FRAME",
+                "name": "Instance descendant",
+                "layoutMode": "VERTICAL",
+                "children": [{ "id": "I13:43;13:45", "type": "TEXT", "name": "Label" }]
+              }
+            ]
+          }
+        ]
+      },
+      "components": {},
+      "componentSets": {},
+      "styles": {}
+    }
+  }
+}
