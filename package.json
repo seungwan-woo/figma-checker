@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
     "check:figma": "node dist/cli.js",
-    "build:pages": "npm run build && FIGMA_URL='https://www.figma.com/design/synthetic/Example?node-id=13-32' node dist/cli.js --fixture test/fixtures/pilot-nodes.json --output reports/pages-source.json && node dist/pages.js reports/pages-source.json"
+    "sample:report": "FIGMA_URL='https://www.figma.com/design/synthetic/Example?node-id=13-32' node dist/cli.js --fixture test/fixtures/pilot-nodes.json",
+    "build:pages": "npm run build && npm run sample:report -- --output reports/pages-source.json && node dist/history.js build reports/history.json reports/pages-source.json"
   },
   "dependencies": { "fp-ts": "2.16.11" },
   "devDependencies": { "@types/node": "24.10.1", "typescript": "5.9.3" }
