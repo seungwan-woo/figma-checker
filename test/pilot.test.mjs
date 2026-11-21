@@ -24,7 +24,7 @@ async function run(t, fixture, figmaUrl = demoUrl, config) {
   return { ...processResult, output };
 }
 
-test('the manual fixture produces adoption counts and a link to the selected default-named frame', async (t) => {
+test('the manual fixture links default names on both frames and other layer types', async (t) => {
   const result = await run(t, 'test/fixtures/pilot-nodes.json');
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(await readFile(result.output, 'utf8'));
@@ -36,11 +36,24 @@ test('the manual fixture produces adoption counts and a link to the selected def
   assert.deepEqual(report.metrics[0], {
     id: 'auto-layout-adoption', version: 1, enabled: 3, eligible: 4, percentage: 75,
   });
-  assert.deepEqual(report.findings.map(({ nodeId, nodeName, status, url }) => ({
-    nodeId, nodeName, status, url,
+  assert.deepEqual(report.findings.map(({ nodeId, nodeName, ruleVersion, severity, url }) => ({
+    nodeId, nodeName, ruleVersion, severity, url,
   })), [{
-    nodeId: '13:32', nodeName: 'Frame 12', status: 'fail', url: demoUrl,
+    nodeId: '13:32', nodeName: 'Frame 12', ruleVersion: 2, severity: 'advisory', url: demoUrl,
+  }, {
+    nodeId: '13:35', nodeName: 'Frame 2', ruleVersion: 2, severity: 'advisory', url: demoUrl.replace('13-32', '13-35'),
+  }, {
+    nodeId: '13:36', nodeName: 'Rectangle 1', ruleVersion: 2, severity: 'advisory', url: demoUrl.replace('13-32', '13-36'),
   }]);
+});
+
+test('a custom naming pattern replaces the built-in defaults', async (t) => {
+  const result = await run(t, 'test/fixtures/pilot-nodes.json', demoUrl, {
+    source: 'synthetic', rules: { 'default-frame-name': { pattern: '^Setting row$' } },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(await readFile(result.output, 'utf8'));
+  assert.deepEqual(report.findings.map(({ nodeName }) => nodeName), ['Setting row']);
 });
 
 test('a missing node produces a failed run rather than an empty successful report', async (t) => {

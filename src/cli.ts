@@ -7,13 +7,12 @@ import * as TE from 'fp-ts/lib/TaskEither.js';
 import { pipe } from 'fp-ts/lib/function.js';
 import { decodeSnapshot, fetchSnapshot, figmaNodeLink, parseFigmaTarget } from './figma.js';
 import type { FigmaTarget } from './figma.js';
-import { evaluateSnapshot, namingRuleId } from './lint.js';
+import { defaultNamingPattern, evaluateSnapshot, namingRuleId } from './lint.js';
 import { asRecord } from './types.js';
 import type { CheckError } from './types.js';
 
-const defaultPattern = '^Frame(?: [0-9]+)?$';
 const invalidConfig = {
-  code: 'INVALID_CONFIG', message: 'Check the source alias, URL, and default frame naming rule in the config.',
+  code: 'INVALID_CONFIG', message: 'Check the source alias, URL, and default layer naming rule in the config.',
 };
 
 type Config = { source: string; target: FigmaTarget; namingPattern: RegExp | null };
@@ -35,7 +34,7 @@ function readConfig(raw: unknown): E.Either<CheckError, Config> {
   const value = rules?.[namingRuleId];
   const naming = asRecord(value);
   if (value !== undefined && !naming) return E.left(invalidConfig);
-  const { enabled = true, pattern = defaultPattern } = naming ?? {};
+  const { enabled = true, pattern = defaultNamingPattern } = naming ?? {};
   if (typeof enabled !== 'boolean' || typeof pattern !== 'string' || !pattern || pattern.length > 256) {
     return E.left(invalidConfig);
   }

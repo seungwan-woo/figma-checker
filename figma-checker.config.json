@@ -2,8 +2,7 @@
   "source": "one-ui-design-kit",
   "rules": {
     "default-frame-name": {
-      "enabled": true,
-      "pattern": "^Frame(?: [0-9]+)?$"
+      "enabled": true
     }
   }
 }

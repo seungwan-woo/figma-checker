@@ -13,7 +13,7 @@ FIGMA_URL='https://www.figma.com/design/synthetic/Example?node-id=13-32' \
   npm run check:figma -- --fixture test/fixtures/pilot-nodes.json
 ```
 
-Open `reports/report.json`. The example yields **75% adoption (3 of 4 containers)** and one advisory for `Frame 12`. The URL in the synthetic finding is an example of the link format.
+Open `reports/report.json`. The example yields **75% adoption (3 of 4 containers)** and three naming advisories. The URLs in the synthetic findings show the link format.
 
 ## Publish a live Figma report
 
@@ -28,8 +28,8 @@ To run locally with these environment variables already set, run `npm run build`
 ## Read the result
 
 - `metrics` shows Auto Layout adoption for visible, nonempty frame and component containers. Instance subtrees are excluded. A `null` percentage means there were no eligible containers. A failed scan has `status: "error"`.
-- `findings` links visible top-level frames with a name such as `Frame 12` back to Figma. With a frame link, the naming rule checks the selected frame. The metric also examines its eligible descendants.
-- `figma-checker.config.json` configures the report alias and the naming rule pattern or `enabled` flag. A private config can supply `url`; `FIGMA_URL` overrides it.
+- `findings` links the selected node and any descendants that exactly match a default layer name such as `Frame 12`, `Rectangle 1`, or `Group 3`. The rule matches the name regardless of node type, visibility, or instance ancestry. A descriptive name such as `Frame 12 copy` does not match the default pattern.
+- In `figma-checker.config.json`, `rules.default-frame-name` keeps its existing key for compatibility. Set `pattern` to override the built-in English defaults or `enabled` to disable the rule. A private config can supply `url`; `FIGMA_URL` overrides it.
 
 ## GitHub Pages preview
 

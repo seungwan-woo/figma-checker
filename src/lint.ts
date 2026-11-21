@@ -2,6 +2,13 @@ import { figmaNodeLink } from './figma.js';
 import type { FigmaTarget, Layer, Snapshot } from './figma.js';
 
 export const namingRuleId = 'default-frame-name';
+const namingRuleVersion = 2;
+const defaultLayerNames = [
+  'Page', 'Frame', 'Section', 'Group', 'Component', 'Component set', 'Component Set', 'Instance',
+  'Rectangle', 'Ellipse', 'Line', 'Arrow', 'Polygon', 'Star', 'Vector', 'Text', 'Slice', 'Image',
+  'Mask group', 'Union', 'Subtract', 'Intersect', 'Exclude',
+];
+export const defaultNamingPattern = `^(?:${defaultLayerNames.join('|')})(?: [0-9]+)?$`;
 
 function isInstance(layer: Layer): boolean {
   return layer.type === 'INSTANCE' || layer.id.startsWith('I');
@@ -25,39 +32,38 @@ function adoption(root: Layer) {
   };
 }
 
-function topLevelFrames(root: Layer): Layer[] {
-  if (!root.visible || isInstance(root)) return [];
-  if (root.type === 'FRAME') return [root];
-  if (root.type !== 'CANVAS' && root.type !== 'SECTION') return [];
-  const result: Layer[] = [];
-  const pending = root.children.toReversed();
+function* layersInTree(root: Layer): Generator<Layer> {
+  const pending = [root];
   for (let layer = pending.pop(); layer; layer = pending.pop()) {
-    if (!layer.visible || isInstance(layer)) continue;
-    if (layer.type === 'FRAME') result.push(layer);
-    if (layer.type === 'SECTION') {
-      for (const child of layer.children.toReversed()) pending.push(child);
-    }
+    yield layer;
+    for (const child of layer.children.toReversed()) pending.push(child);
   }
-  return result;
 }
 
 export function evaluateSnapshot(snapshot: Snapshot, target: FigmaTarget, namingPattern: RegExp | null) {
   const { root, figmaVersion } = snapshot;
   const pageId = root.type === 'CANVAS' ? root.id : null;
-  const frames = namingPattern ? topLevelFrames(root) : [];
-  const findings = frames
-    .filter((frame) => namingPattern?.test(frame.name))
-    .map((frame) => ({
-      ruleId: namingRuleId, ruleVersion: 1, status: 'fail' as const, severity: 'advisory' as const,
-      nodeId: frame.id, nodeName: frame.name, pageId, url: figmaNodeLink(target, frame.id),
-      message: 'Rename this frame to describe the screen or section it represents.',
-    }));
+  let evaluated = 0;
+  const findings = [];
+  if (namingPattern) {
+    const matcher = new RegExp(namingPattern);
+    for (const layer of layersInTree(root)) {
+      evaluated++;
+      matcher.lastIndex = 0;
+      if (!matcher.test(layer.name)) continue;
+      findings.push({
+        ruleId: namingRuleId, ruleVersion: namingRuleVersion, status: 'fail' as const, severity: 'advisory' as const,
+        nodeId: layer.id, nodeName: layer.name, pageId, url: figmaNodeLink(target, layer.id),
+        message: 'Rename this layer to describe its role or content.',
+      });
+    }
+  }
   return {
     snapshot: { figmaVersion, nodeId: root.id, nodeType: root.type, visibilityScope: pageId ? 'page' : 'subtree' },
     metrics: [adoption(root)],
     rules: [{
-      id: namingRuleId, version: 1, enabled: namingPattern !== null,
-      evaluated: frames.length, failed: findings.length,
+      id: namingRuleId, version: namingRuleVersion, enabled: namingPattern !== null,
+      evaluated, failed: findings.length,
     }],
     findings,
   };

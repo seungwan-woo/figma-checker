@@ -6,7 +6,7 @@
 
 ## Overview
 
-The pilot gives developers a shared view of the existing One UI Design Kit draft. First, measure how often eligible containers use Auto Layout. Then add one advisory rule that points out default names on top-level frames. The public PoC publishes a versioned JSON report and run history for designs selected for public reporting.
+The pilot gives developers a shared view of the existing One UI Design Kit draft. It measures how often eligible containers use Auto Layout and points out layers that still use default names. The public PoC publishes a versioned JSON report and run history for designs selected for public reporting.
 
 The main feasibility question is whether the Free seat account can read the draft with enough API quota for the desired schedule. The first metric describes use within a stated scope. Frames outside Auto Layout are not reported as violations.
 
@@ -35,9 +35,9 @@ Start with a small validated config for sources, metric and rule IDs, and rule o
 ### First metric and first rule
 
 - **Auto Layout adoption** is `enabled / eligible`. The proposed denominator is visible `FRAME` and `COMPONENT` containers with at least one visible direct child inside the selected subtree. Include nodes nested under component sets. Exclude instance subtrees and hidden subtrees within the fetched scope. For a direct node link, label visibility as relative to the fetched subtree if ancestors are unknown. `HORIZONTAL`, `VERTICAL`, and `GRID` count as enabled. `NONE` or an omitted mode counts as disabled. Show the numerator and denominator alongside the percentage, including when aggregating pages. Show distinct states for zero adoption, zero eligible containers, and unavailable data. If some targets fail to load, mark coverage as partial and omit a combined figure. Use fixtures for hidden, empty, instance, overlapping-target, and zero-denominator cases.
-- **Default name on a top-level frame** is the first advisory lint. From a selected page or section, follow `SECTION` children and inspect their visible `FRAME` children. Stop traversal at each frame. For a link that selects a frame, check that frame alone. Flag names that match `^Frame(?: [0-9]+)?$`, such as `Frame 12`. The pilot uses the English default pattern, which can be configured for other locales. Nested layers, components, and instances are outside this rule. The finding includes the current name, a suggestion to use a descriptive screen name, and a link to the frame. This gives the designer a concrete fix without attaching a quality claim to every name the rule misses.
+- **Default layer name** is the first advisory lint. Check the selected node and each descendant, including hidden layers and instances. Match common English default names such as `Frame 12`, `Rectangle 1`, and `Group 3` regardless of node type. The matching pattern can be configured for other locales. The finding includes the current name, a suggestion to describe the role or content, and a Figma link. Version 2 keeps the existing rule ID so the dashboard can distinguish it from earlier reports.
 
-For example, in a synthetic selection whose root is `Frame 12`, an adoption result of `3 of 4 (75%)` can include the root and three eligible descendants. The naming rule checks only the selected root and links to it. If the real target yields no findings, keep that result and demonstrate the rule with the fixture.
+For example, in a synthetic selection whose root is `Frame 12`, adoption is `3 of 4 (75%)`. The naming rule links the root and nested layers that match the default pattern. If the real target yields no findings, keep that result and demonstrate the rule with the fixture.
 
 ### Score, schedule, and history
 
