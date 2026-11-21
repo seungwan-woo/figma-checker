@@ -71,3 +71,43 @@ test('history separates changed measurement definitions and shows when the namin
   assert.match(html, /측정 기준 v1/);
   assert.match(html, /측정 기준 v2/);
 });
+
+const byteLimit = 32 * 1024 * 1024;
+const historyBytes = (entries) => Buffer.byteLength(`[\n${entries.map((entry) => JSON.stringify(entry)).join(',\n')}\n]\n`);
+
+test('the retention limit accepts exactly 32 MiB of serialized UTF-8 and rejects one byte more', () => {
+  const raw = { ...successful('20'), snapshot: { figmaVersion: '' } };
+  const baseBytes = historyBytes([{ id: '100', report: preparePublicReport(raw, true) }]);
+  const padding = byteLimit - baseBytes;
+  raw.snapshot.figmaVersion = '가'.repeat(Math.floor(padding / 3)) + 'x'.repeat(padding % 3);
+  assert.equal(historyBytes(addAttempt([], '100', raw)), byteLimit);
+  raw.snapshot.figmaVersion += 'x';
+  assert.throws(() => addAttempt([], '100', raw), /exceeds the retained history window/);
+});
+
+test('an older incoming attempt keeps its full summary and longest fitting detail prefix', () => {
+  const ruleId = 'instance-source-reference';
+  const older = {
+    ...successful('19'),
+    rules: [{ id: ruleId, version: 1, enabled: true, resolved: 2, unresolved: 3, notChecked: 1 }],
+    findings: [successful('19').findings[0], ...[1, 2, 3].map((id) => ({
+      ruleId, nodeId: `14:${id}`, reason: 'missing_component_entry',
+    }))],
+  };
+  const expectedOlder = preparePublicReport({ ...older, findings: older.findings.slice(0, 3) }, true);
+  const newer = { ...successful('20'), snapshot: { figmaVersion: '' } };
+  const expectedBytes = historyBytes([
+    { id: '101', report: preparePublicReport(newer, true) }, { id: '100', report: expectedOlder },
+  ]);
+  newer.snapshot.figmaVersion = 'x'.repeat(byteLimit - expectedBytes);
+  const initial = addAttempt([], '101', newer);
+  const retained = addAttempt(initial, '100', older);
+  assert.equal(retained.length, 2);
+  assert.equal(retained[0], initial[0]);
+  assert.equal(historyBytes(retained), byteLimit);
+  assert.deepEqual(retained[1].report, expectedOlder);
+  assert.deepEqual(retained[1].report.findings.filter((f) => f.ruleId === ruleId).map((f) => f.nodeId), ['14:1', '14:2']);
+  assert.deepEqual(retained[1].report.rules[0], {
+    id: ruleId, version: 1, enabled: true, evaluated: 5, resolved: 2, unresolved: 3, notChecked: 1, omittedDetails: 1,
+  });
+});

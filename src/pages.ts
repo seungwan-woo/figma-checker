@@ -1,13 +1,41 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { figmaNodeLink, parseFigmaTarget } from './figma.js';
+import { figmaNodeLink, isFigmaNodeId, isVirtualFigmaNodeId, parseFigmaTarget } from './figma.js';
+import { instanceDetailLimit, instanceLabel, instanceReasons, instanceSourceRuleId } from './instance-source.js';
+import type { InstanceReason, InstanceSourceSummary } from './instance-source.js';
+import { namingRuleId } from './lint.js';
 import { asRecord } from './types.js';
 
 export function publicFigmaTarget(value: unknown) {
   if (typeof value !== 'string') return null;
   const target = parseFigmaTarget(value);
   if (target._tag === 'Left') return null;
-  const { fileKey, nodeId } = target.right;
-  return { fileKey, nodeId, url: figmaNodeLink(target.right, nodeId) };
+  return { ...target.right, url: figmaNodeLink(target.right, target.right.nodeId) };
+}
+
+type PublicFinding = {
+  ruleId: string;
+  nodeId: string;
+  nodeName: string;
+  url?: string;
+  reason?: InstanceReason;
+};
+
+type PublicRuleSummary = InstanceSourceSummary | {
+  id: typeof namingRuleId; enabled: boolean; evaluated: number; version: number;
+};
+
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function projectInstanceSummary(rule: Record<string, unknown> | undefined): InstanceSourceSummary | undefined {
+  const { enabled, resolved, unresolved, notChecked } = rule ?? {};
+  if (typeof enabled !== 'boolean' || !isCount(resolved) || !isCount(unresolved) || !isCount(notChecked)
+      || !Number.isSafeInteger(resolved + unresolved + notChecked)) return undefined;
+  return {
+    id: instanceSourceRuleId, version: positiveVersion(rule?.version), enabled,
+    evaluated: resolved + unresolved, resolved, unresolved, notChecked, omittedDetails: unresolved,
+  };
 }
 
 export function preparePublicReport(value: unknown, allowLive = false) {
@@ -32,26 +60,42 @@ export function preparePublicReport(value: unknown, allowLive = false) {
         || !Number.isFinite(percentage) || percentage < 0 || percentage > 100)) {
     throw new Error('Invalid fixture adoption metric.');
   }
-  const namingRule = Array.isArray(report.rules)
-    ? report.rules.map(asRecord).find((rule) => rule?.id === 'default-frame-name')
-    : undefined;
-  const rules = typeof namingRule?.enabled === 'boolean' && typeof namingRule.evaluated === 'number'
-    && Number.isSafeInteger(namingRule.evaluated) && namingRule.evaluated >= 0
-    ? [{ id: 'default-frame-name', enabled: namingRule.enabled, evaluated: namingRule.evaluated,
-      version: positiveVersion(namingRule.version) }]
-    : [];
-  const advisories = findings.map((entry: unknown) => {
+  const rawRules = Array.isArray(report.rules) ? report.rules.map(asRecord) : [];
+  const namingRule = rawRules.find((rule) => rule?.id === namingRuleId);
+  const instanceRule = projectInstanceSummary(rawRules.find((rule) => rule?.id === instanceSourceRuleId));
+  const rules: PublicRuleSummary[] = [];
+  if (typeof namingRule?.enabled === 'boolean' && isCount(namingRule.evaluated)) {
+    rules.push({ id: namingRuleId, enabled: namingRule.enabled, evaluated: namingRule.evaluated,
+      version: positiveVersion(namingRule.version) });
+  }
+
+  const advisories: PublicFinding[] = [];
+  let publishedInstances = 0;
+  for (const entry of findings) {
     const finding = asRecord(entry);
+    if (finding?.ruleId === instanceSourceRuleId) {
+      if (!instanceRule?.enabled || publishedInstances >= Math.min(instanceRule.unresolved, instanceDetailLimit)
+          || !isFigmaNodeId(finding.nodeId)) continue;
+      const reason = instanceReasons.find((code) => code === finding.reason);
+      if (!reason) continue;
+      advisories.push({
+        ruleId: instanceSourceRuleId, nodeId: finding.nodeId, nodeName: instanceLabel, reason,
+        url: target && !isVirtualFigmaNodeId(finding.nodeId) ? figmaNodeLink(target, finding.nodeId) : undefined,
+      });
+      publishedInstances++;
+      continue;
+    }
     if (!finding || typeof finding.ruleId !== 'string' || typeof finding.nodeId !== 'string'
         || typeof finding.nodeName !== 'string') {
       throw new Error('Invalid fixture finding.');
     }
-    const link = target ? publicFigmaTarget(finding.url) : null;
-    return {
+    const link = target && !isVirtualFigmaNodeId(finding.nodeId) ? publicFigmaTarget(finding.url) : null;
+    advisories.push({
       ruleId: finding.ruleId, nodeId: finding.nodeId, nodeName: finding.nodeName,
       url: link?.fileKey === target?.fileKey && link?.nodeId === finding.nodeId ? link?.url : undefined,
-    };
-  });
+    });
+  }
+  if (instanceRule) rules.push({ ...instanceRule, omittedDetails: instanceRule.unresolved - publishedInstances });
   // Only publish selected fields and canonical links on this public PoC.
   return {
     schemaVersion: 1,
@@ -74,10 +118,10 @@ function positiveVersion(value: unknown): number {
 }
 
 export function namingStatus(report: ReturnType<typeof preparePublicReport>): string {
-  const rule = report.rules[0];
+  const rule = report.rules.find(({ id }) => id === namingRuleId);
   if (rule?.enabled === false) return '규칙 꺼짐';
   if (rule?.evaluated === 0) return '검사 대상 없음';
-  return `${new Intl.NumberFormat('ko-KR').format(report.findings.length)}건`;
+  return `${new Intl.NumberFormat('ko-KR').format(report.findings.filter(({ ruleId }) => ruleId === namingRuleId).length)}건`;
 }
 
 export function escapeHtml(value: string): string {
@@ -91,6 +135,29 @@ export function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+function findingTarget(finding: PublicFinding): string {
+  const id = `<code>${escapeHtml(finding.nodeId)}</code>`;
+  return finding.url ? `<a href="${escapeHtml(finding.url)}">${id}</a>` : id;
+}
+
+const instanceReasonLabels: Record<InstanceReason, string> = {
+  missing_component_id: '컴포넌트 ID 없음',
+  missing_component_entry: '응답에 컴포넌트 정보 없음',
+  invalid_component_entry: '컴포넌트 정보 형식 오류',
+};
+
+function renderInstanceSources(report: ReturnType<typeof preparePublicReport>): string {
+  const summary = report.rules.find((rule) => rule.id === instanceSourceRuleId);
+  if (!summary) return '<p>검사 결과 없음</p>';
+  if (!summary.enabled) return '<p>규칙 꺼짐</p>';
+  const count = new Intl.NumberFormat('ko-KR');
+  const details = report.findings.filter(({ ruleId }) => ruleId === instanceSourceRuleId);
+  const list = details.length === 0 ? '' : `<ul>${details.map((finding) => `<li><strong>인스턴스 ${findingTarget(finding)}</strong>
+        <span>${finding.reason ? instanceReasonLabels[finding.reason] : ''}</span></li>`).join('')}</ul>`;
+  return `<p>확인됨 ${count.format(summary.resolved)}건 · 원본 확인 불가 ${count.format(summary.unresolved)}건 · 검사 불가 ${count.format(summary.notChecked)}건</p>
+        ${summary.omittedDetails ? `<p>상세 생략 ${count.format(summary.omittedDetails)}건</p>` : ''}${list}`;
+}
+
 export function renderReport(report: ReturnType<typeof preparePublicReport>, historyMarkup = ''): string {
   const [metric] = report.metrics;
   const date = new Date(report.createdAt);
@@ -102,11 +169,10 @@ export function renderReport(report: ReturnType<typeof preparePublicReport>, his
     : `${number.format(metric.percentage)}%`;
   const meter = metric.percentage === null ? ''
     : `<meter min="0" max="100" value="${metric.percentage}" aria-label="Auto Layout 적용률">${metricValue}</meter>`;
-  const findings = report.findings.length > 0
-    ? `<ul>${report.findings.map((finding) => `<li><strong>${escapeHtml(finding.nodeName)}</strong>
-      <span>기본 이름 · 노드 ${finding.url
-        ? `<a href="${escapeHtml(finding.url)}"><code>${escapeHtml(finding.nodeId)}</code></a>`
-        : `<code>${escapeHtml(finding.nodeId)}</code>`}</span></li>`).join('')}</ul>` : '';
+  const namingFindings = report.findings.filter(({ ruleId }) => ruleId === namingRuleId);
+  const findings = namingFindings.length > 0
+    ? `<ul>${namingFindings.map((finding) => `<li><strong>${escapeHtml(finding.nodeName)}</strong>
+      <span>기본 이름 · 노드 ${findingTarget(finding)}</span></li>`).join('')}</ul>` : '';
 
   return `<!doctype html>
 <html lang="ko">
@@ -139,6 +205,10 @@ export function renderReport(report: ReturnType<typeof preparePublicReport>, his
         <h2 id="naming">레이어 이름 검토</h2>
         <p class="metric">${namingStatus(report)}</p>
         ${findings}
+      </section>
+      <section aria-labelledby="instance-source">
+        <h2 id="instance-source">인스턴스 원본 참조</h2>
+        ${renderInstanceSources(report)}
       </section>
     </div>
     ${historyMarkup}

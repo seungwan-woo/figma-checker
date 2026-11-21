@@ -1,5 +1,7 @@
-import { figmaNodeLink } from './figma.js';
+import { figmaNodeLink, isVirtualFigmaNodeId, layersInTree } from './figma.js';
 import type { FigmaTarget, Layer, Snapshot } from './figma.js';
+import { evaluateInstanceSources } from './instance-source.js';
+import type { InstanceSourceOptions } from './instance-source.js';
 
 export const namingRuleId = 'default-frame-name';
 const namingRuleVersion = 2;
@@ -32,15 +34,10 @@ function adoption(root: Layer) {
   };
 }
 
-function* layersInTree(root: Layer): Generator<Layer> {
-  const pending = [root];
-  for (let layer = pending.pop(); layer; layer = pending.pop()) {
-    yield layer;
-    for (const child of layer.children.toReversed()) pending.push(child);
-  }
-}
-
-export function evaluateSnapshot(snapshot: Snapshot, target: FigmaTarget, namingPattern: RegExp | null) {
+export function evaluateSnapshot(
+  snapshot: Snapshot, target: FigmaTarget, namingPattern: RegExp | null,
+  instanceOptions: InstanceSourceOptions = { enabled: true, includeLinks: true },
+) {
   const { root, figmaVersion } = snapshot;
   const pageId = root.type === 'CANVAS' ? root.id : null;
   let evaluated = 0;
@@ -53,18 +50,20 @@ export function evaluateSnapshot(snapshot: Snapshot, target: FigmaTarget, naming
       if (!matcher.test(layer.name)) continue;
       findings.push({
         ruleId: namingRuleId, ruleVersion: namingRuleVersion, status: 'fail' as const, severity: 'advisory' as const,
-        nodeId: layer.id, nodeName: layer.name, pageId, url: figmaNodeLink(target, layer.id),
+        nodeId: layer.id, nodeName: layer.name, pageId,
+        url: isVirtualFigmaNodeId(layer.id) ? undefined : figmaNodeLink(target, layer.id),
         message: 'Rename this layer to describe its role or content.',
       });
     }
   }
+  const instanceSources = evaluateInstanceSources(snapshot, target, instanceOptions);
   return {
     snapshot: { figmaVersion, nodeId: root.id, nodeType: root.type, visibilityScope: pageId ? 'page' : 'subtree' },
     metrics: [adoption(root)],
     rules: [{
       id: namingRuleId, version: namingRuleVersion, enabled: namingPattern !== null,
       evaluated, failed: findings.length,
-    }],
-    findings,
+    }, instanceSources.summary],
+    findings: [...findings, ...instanceSources.findings],
   };
 }

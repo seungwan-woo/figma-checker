@@ -3,6 +3,9 @@
   "rules": {
     "default-frame-name": {
       "enabled": true
+    },
+    "instance-source-reference": {
+      "enabled": true
     }
   }
 }

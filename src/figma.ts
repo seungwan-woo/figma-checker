@@ -21,16 +21,34 @@ export type Layer = {
   readonly name: string;
   readonly visible: boolean;
   readonly layoutMode: LayoutMode;
+  readonly componentId?: string;
   readonly children: readonly Layer[];
 };
 
 export type Snapshot = {
   readonly figmaVersion: string;
   readonly root: Layer;
+  readonly componentReferences: ReadonlyMap<string, 'valid' | 'invalid'> | null;
 };
 
 const invalidUrl = { code: 'INVALID_FIGMA_URL', message: 'Provide an HTTPS Figma Design URL.' };
 const invalidResponse = { code: 'INVALID_FIGMA_RESPONSE', message: 'The response did not contain a valid Figma node snapshot.' };
+
+export function isFigmaNodeId(value: unknown): value is string {
+  return typeof value === 'string' && nodeIdPattern.test(value);
+}
+
+export function isVirtualFigmaNodeId(value: string): boolean {
+  return value.startsWith('I') || value.includes(';');
+}
+
+export function* layersInTree(root: Layer): Generator<Layer> {
+  const pending = [root];
+  for (let layer = pending.pop(); layer; layer = pending.pop()) {
+    yield layer;
+    for (const child of layer.children.toReversed()) pending.push(child);
+  }
+}
 
 export function parseFigmaTarget(value: string): E.Either<CheckError, FigmaTarget> {
   const url = URL.parse(value);
@@ -50,7 +68,7 @@ export function parseFigmaTarget(value: string): E.Either<CheckError, FigmaTarge
     return E.left({ code: 'NODE_ID_REQUIRED', message: 'For this pilot, copy the link to a Figma page or node.' });
   }
   const nodeId = ids[0]?.replaceAll('-', ':');
-  if (ids.length !== 1 || !nodeId || !nodeIdPattern.test(nodeId)) return E.left(invalidUrl);
+  if (ids.length !== 1 || !isFigmaNodeId(nodeId)) return E.left(invalidUrl);
 
   // Preserve Figma's path but strip share parameters and the fragment.
   return E.right({ fileKey, nodeId, designUrl: `${url.origin}${url.pathname}` });
@@ -69,12 +87,29 @@ function decodeLayer(value: unknown): { layer: DraftLayer; children: unknown[] }
   if (!object) return undefined;
   const { id, type, name, visible, layoutMode = 'NONE', children = [] } = object;
   const mode = layoutModes.find((candidate) => candidate === layoutMode);
-  if (typeof id !== 'string' || !nodeIdPattern.test(id) || typeof type !== 'string' || !type
+  if (!isFigmaNodeId(id) || typeof type !== 'string' || !type
       || typeof name !== 'string' || (visible !== undefined && typeof visible !== 'boolean')
       || !mode || !Array.isArray(children)) {
     return undefined;
   }
-  return { layer: { id, type, name, visible: visible ?? true, layoutMode: mode, children: [] }, children };
+  const componentId = type === 'INSTANCE' && nonblankString(object.componentId) ? object.componentId : undefined;
+  return { layer: { id, type, name, visible: visible ?? true, layoutMode: mode, componentId, children: [] }, children };
+}
+
+function nonblankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function decodeComponentReferences(value: unknown): Snapshot['componentReferences'] {
+  const components = asRecord(value);
+  if (!components) return null;
+  const references = new Map<string, 'valid' | 'invalid'>();
+  for (const [id, value] of Object.entries(components)) {
+    const component = asRecord(value);
+    const valid = component && Object.hasOwn(component, 'key') && nonblankString(component.key);
+    references.set(id, valid ? 'valid' : 'invalid');
+  }
+  return references;
 }
 
 export function decodeSnapshot(value: unknown, nodeId: string): E.Either<CheckError, Snapshot> {
@@ -87,7 +122,8 @@ export function decodeSnapshot(value: unknown, nodeId: string): E.Either<CheckEr
   if (entry === null || entry === undefined) {
     return E.left({ code: 'NODE_NOT_FOUND', message: 'The selected node was not returned. Check the copied link and file access.' });
   }
-  const root = decodeLayer(asRecord(entry)?.document);
+  const envelope = asRecord(entry);
+  const root = decodeLayer(envelope?.document);
   if (!root || root.layer.id !== nodeId) return E.left(invalidResponse);
 
   const pending = [root];
@@ -99,7 +135,7 @@ export function decodeSnapshot(value: unknown, nodeId: string): E.Either<CheckEr
       pending.push(child);
     }
   }
-  return E.right({ figmaVersion, root: root.layer });
+  return E.right({ figmaVersion, root: root.layer, componentReferences: decodeComponentReferences(envelope?.components) });
 }
 
 function retryAfterSeconds(header: string | null): number | undefined {
